@@ -168,7 +168,6 @@ def render_ticket(t, title="あなたの発券情報"):
 # ====== ルーティング & UI ======
 st.markdown(
     "<div style='display:flex;gap:8px;margin:8px 0'>"
-    "<a href='?view=issue'><button>🎫 発券</button></a>"
     "<a href='?view=lookup'><button>🔎 発券番号で再表示</button></a>"
     "</div>", unsafe_allow_html=True
 )
