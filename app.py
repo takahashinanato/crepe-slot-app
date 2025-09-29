@@ -157,7 +157,7 @@ def render_ticket(t):
     st.markdown(
         "<div style='padding:16px;border:3px dashed #e00;border-radius:12px;"
         "margin:8px 0 16px;text-align:center;font-weight:800;font-size:20px;color:#e00'>"
-        "この画面（発見情報）を<strong>必ずスクショ</strong>してください。<br/>"
+        "この画面（発券情報）を<strong>必ずスクショ</strong>してください。<br/>"
         "引き渡し時にご提示いただきます。"
         "</div>",
         unsafe_allow_html=True,
