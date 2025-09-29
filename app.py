@@ -5,7 +5,17 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, time, timezone
 
-# ===== 基本設定 =====
+# ====== ブランド / 文言（ここを変えるだけで表示が変わります） ======
+FESTIVAL_NAME = "摩耶祭"
+GROUP_NAME = "バドミントン部"
+TAGLINE = "今年もクレープ続けました"
+POST_ISSUE_MESSAGE = (
+    "ご注文ありがとうございます。ご指定時間になりましたら**時間指定列**にお越しくださいませ。"
+    "ご予約時間外にお越しいただいた場合、**通常列**にてスクショをご提示ください。"
+    "※混雑状況によっては時間指定列へご案内できる場合があります。スタッフにお声掛けください。"
+)
+
+# ====== 基本設定 ======
 st.set_page_config(page_title="Crepe Ticket", layout="centered")
 JST = timezone(timedelta(hours=9))
 
@@ -20,10 +30,9 @@ SLOT_MINUTES = 30
 CAP_PER_SLOT = 20
 EXPIRE_EXTRA_MIN = 30  # 枠終了+30分
 
-# ===== Google Sheets 接続（キャッシュ） =====
+# ====== Google Sheets 接続（キャッシュ） ======
 @st.cache_resource(show_spinner=False)
 def _client():
-    # Streamlit Secrets の [google_service_account] セクションを dict として渡す
     info = dict(st.secrets["google_service_account"])
     creds = Credentials.from_service_account_info(info, scopes=SCOPE)
     return gspread.authorize(creds)
@@ -39,12 +48,11 @@ def ws(name: str):
         return sh.worksheet(name)
     except gspread.WorksheetNotFound:
         return sh.add_worksheet(title=name, rows=1000, cols=26)
-    except gspread.exceptions.APIError as e:
-        # 設定ミス時に理由を表示
+    except gspread.exceptions.APIError:
         st.error("Google Sheets にアクセスできません。SHEET_ID と共有設定（client_emailを編集者で追加）を確認してください。")
         raise
 
-# ===== ヘッダ & 当日枠生成 =====
+# ====== ヘッダ / 当日枠生成 ======
 def ensure_headers():
     w1 = ws(SLOTS_SHEET)
     h1 = ["date","slot_start","slot_end","cap","issued","code"]
@@ -79,7 +87,7 @@ def ensure_today_slots(date_str: str):
     df = slots_df(date_str)
     if not df.empty: return
 
-    # 11:00〜15:30 を30分刻みで作成。時間帯ごとに A, B, C... を割当
+    # 11:00〜15:30 / 30分刻み。A, B, C... を割当
     start_dt = datetime.combine(datetime.now(JST).date(), ISSUE_START, tzinfo=JST)
     end_last = datetime.combine(datetime.now(JST).date(), ISSUE_END, tzinfo=JST)
     rows, code = [], 65  # 65='A'
@@ -93,7 +101,7 @@ def ensure_today_slots(date_str: str):
     ws(SLOTS_SHEET).append_rows(rows, value_input_option="USER_ENTERED")
     slots_df.clear()
 
-# ===== 発券処理 =====
+# ====== 発券処理 ======
 def _to_expiry(date_str: str, slot_end_hm: str) -> datetime:
     h, m = map(int, slot_end_hm.split(":"))
     d = datetime.fromisoformat(date_str)
@@ -132,16 +140,32 @@ def issue_ticket(date_str: str, slot_start: str, slot_end: str):
     slots_df.clear(); tickets_df.clear()
     return {"ticket_id": ticket_no, "slot": f"{slot_start}–{slot_end}", "expires_at": expires}
 
-# ===== 表示部 =====
+# ====== 共通ヘッダ / チケット表示 ======
+def brand_header():
+    st.markdown(
+        f"""
+        <div style="text-align:center; margin: 4px 0 12px;">
+          <div style="font-size:22px; font-weight:700;">{FESTIVAL_NAME} / {GROUP_NAME}</div>
+          <div style="font-size:14px; opacity:.9">{TAGLINE}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def render_ticket(t, title="あなたの発券情報"):
     st.subheader(title)
-    st.markdown(f"<div style='font-size:72px;font-weight:800;text-align:center'>{t['ticket_id']}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='font-size:76px;font-weight:800;text-align:center;margin:8px 0 4px'>{t['ticket_id']}</div>",
+        unsafe_allow_html=True,
+    )
     st.markdown(f"- 枠時間：{t['slot']}")
     st.markdown(f"- 有効期限：**{t['expires_at'].astimezone(JST).strftime('%H:%M')}** まで")
     st.warning("※ 期限切れの場合は通常列をご利用ください")
+    # 発券後の案内メッセージ
+    st.success(POST_ISSUE_MESSAGE)
     st.info("この画面をスクショしてください")
 
-# ===== ルーティング＆UI =====
+# ====== ルーティング & UI ======
 st.markdown(
     "<div style='display:flex;gap:8px;margin:8px 0'>"
     "<a href='?view=issue'><button>🎫 発券</button></a>"
@@ -156,6 +180,7 @@ d = today_str()
 ensure_today_slots(d)
 
 if view == "issue":
+    brand_header()
     st.title("発券")
 
     # 同一ブラウザは当日1回ロック
@@ -202,6 +227,7 @@ if view == "issue":
                     st.error(str(e))
 
 elif view == "lookup":
+    brand_header()
     st.title("発券番号で再表示")
     tid = st.text_input("発券番号（例 A-001）").strip()
     if st.button("表示") and tid:
@@ -218,4 +244,5 @@ elif view == "lookup":
             }
             render_ticket(t)
 else:
+    brand_header()
     st.write("上のボタンから画面を選んでください。")
