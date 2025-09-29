@@ -228,7 +228,7 @@ if view == "issue":
 elif view == "lookup":
     brand_header()
     st.title("発券番号で再表示")
-    tid = st.text_input("発券番号 半角で入力（例 A-001）").strip()
+    tid = st.text_input("発券番号 半角で入力（例 A-001）11:00:A 11:30:B 12:00:C 12:30:D 13:00:E 13:30:F 14:00:G 14:30:H 15:00:I 15:30:J").strip()
     if st.button("表示") and tid:
         df = tickets_df(d)
         hit = df[df["ticket_id"]==tid]
