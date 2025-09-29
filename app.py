@@ -9,11 +9,18 @@ from datetime import datetime, timedelta, time, timezone
 FESTIVAL_NAME = "摩耶祭"
 GROUP_NAME = "バドミントン部"
 TAGLINE = "今年もクレープ続けました"
-POST_ISSUE_MESSAGE = (
-    "ご注文ありがとうございます。ご予約時間になりましたら**時間指定列**にお越しくださいませ。"
-    "ご予約時間外にお越しいただいた場合、通常列へのご案内となります。予めご了承ください。"
-    "※混雑状況により時間指定列へご案内致します。スタッフにお声掛けください。"
-)
+
+POST_ISSUE_MESSAGE = """
+ご注文ありがとうございます。ご指定のお時間になりましたら、**時間指定列**へお越しください。
+その際、**本画面のスクリーンショット**をご提示ください。
+
+ご予約時間外にお越しの場合は、**通常列**へのご案内となります。
+※混雑状況により、時間指定列へご案内できる場合があります。スタッフへお声がけください。
+
+【販売に関するご案内】
+- 一時的な営業見合わせ・売切の際は、**現金にてご返金**いたします。
+- お客様都合によるお会計後のご返金は**承っておりません**。あらかじめご了承ください。
+"""
 
 # ====== 基本設定 ======
 st.set_page_config(page_title="Crepe Ticket", layout="centered")
@@ -28,7 +35,7 @@ ISSUE_START = time(11, 0)
 ISSUE_END   = time(15, 30)
 SLOT_MINUTES = 30
 CAP_PER_SLOT = 20
-EXPIRE_EXTRA_MIN = 30
+EXPIRE_EXTRA_MIN = 30  # 枠終了+30分
 
 # ====== Google Sheets ======
 @st.cache_resource(show_spinner=False)
@@ -42,17 +49,22 @@ def _sh():
     return _client().open_by_key(st.secrets["SHEET_ID"])
 
 def ws(name: str):
+    """ワークシート取得。無ければ作成して返す"""
     sh = _sh()
     try:
         return sh.worksheet(name)
     except gspread.WorksheetNotFound:
         return sh.add_worksheet(title=name, rows=1000, cols=26)
+    except gspread.exceptions.APIError:
+        st.error("Google Sheets にアクセスできません。SHEET_ID と共有設定（client_emailを編集者で追加）を確認してください。")
+        raise
 
 def ensure_headers():
     w1 = ws(SLOTS_SHEET)
     h1 = ["date","slot_start","slot_end","cap","issued","code"]
     if w1.row_values(1) != h1:
         w1.clear(); w1.update("A1", [h1])
+
     w2 = ws(TICKETS_SHEET)
     h2 = ["ticket_id","issued_at","date","slot_start","slot_end","expires_at"]
     if w2.row_values(1) != h2:
@@ -72,10 +84,12 @@ def ensure_today_slots(date_str: str):
     ensure_headers()
     slots_df.clear()
     df = slots_df(date_str)
-    if not df.empty: return
+    if not df.empty:
+        return
+    # 当日枠を自動生成（11:00〜15:30 / 30分刻み）。A, B, C... を割当
     start_dt = datetime.combine(datetime.now(JST).date(), ISSUE_START, tzinfo=JST)
     end_last = datetime.combine(datetime.now(JST).date(), ISSUE_END, tzinfo=JST)
-    rows, code = [], 65
+    rows, code = [], 65  # 65='A'
     cur = start_dt
     while cur <= end_last:
         s = cur.strftime("%H:%M")
@@ -96,22 +110,33 @@ def issue_ticket(date_str: str, slot_start: str, slot_end: str):
     w = ws(SLOTS_SHEET)
     df_all = pd.DataFrame(w.get_all_records())
     recs = df_all[(df_all["date"]==date_str) & (df_all["slot_start"]==slot_start) & (df_all["slot_end"]==slot_end)]
-    if recs.empty: raise RuntimeError("枠が見つかりません")
+    if recs.empty:
+        raise RuntimeError("枠が見つかりません")
     r = recs.iloc[0]
     cap = int(r["cap"]); issued = int(r["issued"]); code = r["code"]
-    if issued >= cap: raise RuntimeError("満枠です")
+    if issued >= cap:
+        raise RuntimeError("満枠です")
+
     ticket_no = f"{code}-{issued+1:03d}"
-    now = datetime.now(JST); expires = _to_expiry(date_str, slot_end)
+    now = datetime.now(JST)
+    expires = _to_expiry(date_str, slot_end)
+
+    # tickets へ記録
     ws(TICKETS_SHEET).append_row(
         [ticket_no, now.isoformat(), date_str, slot_start, slot_end, expires.isoformat()],
         value_input_option="USER_ENTERED"
     )
-    headers = w.row_values(1); vals = w.get_all_values()
+
+    # issued +1
+    headers = w.row_values(1)
+    vals = w.get_all_values()
     i_date, i_s, i_e, i_issued = headers.index("date"), headers.index("slot_start"), headers.index("slot_end"), headers.index("issued")
     for i in range(1, len(vals)):
         row = vals[i]
         if row[i_date]==date_str and row[i_s]==slot_start and row[i_e]==slot_end:
-            w.update_cell(i+1, i_issued+1, issued+1); break
+            w.update_cell(i+1, i_issued+1, issued+1)
+            break
+
     slots_df.clear()
     return {"ticket_id": ticket_no, "slot": f"{slot_start}–{slot_end}", "expires_at": expires}
 
@@ -123,52 +148,81 @@ def brand_header():
           <div style="font-size:22px; font-weight:700;">{FESTIVAL_NAME} / {GROUP_NAME}</div>
           <div style="font-size:14px; opacity:.9">{TAGLINE}</div>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True
+    )
 
 def render_ticket(t):
+    # --- 最上部：スクショ強調 ---
+    st.markdown(
+        "<div style='padding:16px;border:3px dashed #e00;border-radius:12px;"
+        "margin:8px 0 16px;text-align:center;font-weight:800;font-size:20px;color:#e00'>"
+        "この画面を<strong>必ずスクショ</strong>してください。<br/>"
+        "引き渡し時にご提示いただきます。"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
     st.subheader("あなたの発券情報")
     st.markdown(
         f"<div style='font-size:76px;font-weight:800;text-align:center;margin:8px 0 4px'>{t['ticket_id']}</div>",
-        unsafe_allow_html=True)
+        unsafe_allow_html=True
+    )
     st.markdown(f"- 枠時間：{t['slot']}")
     st.markdown(f"- 有効期限：**{t['expires_at'].astimezone(JST).strftime('%H:%M')}** まで")
     st.warning("※ 期限切れの場合は通常列をご利用ください")
     st.success(POST_ISSUE_MESSAGE)
-    st.markdown(
-        "<div style='padding:16px;border:3px dashed #e00;border-radius:12px;margin-top:12px;"
-        "text-align:center;font-weight:800;font-size:20px;color:#e00'>"
-        "この画面を<strong>必ずスクショ</strong>してください。"
-        "</div>", unsafe_allow_html=True)
 
 # ====== メイン ======
-view = "issue"
+view = "issue"  # 再表示なし。発券のみ。
 d = today_str()
 ensure_today_slots(d)
 
 if view == "issue":
     brand_header()
     st.title("発券")
+
+    # 同一ブラウザは当日1回ロック
     if st.session_state.get("issued_date") == d:
-        t = {"ticket_id": st.session_state["ticket_id"], "slot": st.session_state["slot"], "expires_at": st.session_state["expires_at"]}
-        render_ticket(t); st.stop()
+        t = {
+            "ticket_id": st.session_state["ticket_id"],
+            "slot":      st.session_state["slot"],
+            "expires_at":st.session_state["expires_at"],
+        }
+        render_ticket(t)
+        st.stop()
+
     df = slots_df(d)
-    if df.empty: st.warning("本日の枠がありません"); st.stop()
+    if df.empty:
+        st.warning("本日の枠がありません")
+        st.stop()
+
     def hm_to_time(hm): h,m = map(int, hm.split(":")); return time(h,m)
     df["remain"] = df["cap"].astype(int) - df["issued"].astype(int)
-    df["disabled"] = df.apply(lambda r: (hm_to_time(r["slot_start"])<ISSUE_START) or (hm_to_time(r["slot_start"])>ISSUE_END) or (int(r["issued"])>=int(r["cap"])), axis=1)
+    df["disabled"] = df.apply(lambda r:
+        (hm_to_time(r["slot_start"]) < ISSUE_START) or
+        (hm_to_time(r["slot_start"]) > ISSUE_END) or
+        (int(r["issued"]) >= int(r["cap"])), axis=1
+    )
+
     st.caption("受付：11:00–15:30 / 各30分枠20名 / 期限切れは通常列へ")
+
     for _, r in df.iterrows():
-        c1,c2,c3 = st.columns([2,1,2])
-        with c1: st.write(f"**{r['slot_start']}–{r['slot_end']}**（コード: {r['code']}）")
-        with c2: st.write(f"残り: {int(r['remain'])}/{int(r['cap'])}")
+        c1, c2, c3 = st.columns([2,1,2])
+        with c1:
+            st.write(f"**{r['slot_start']}–{r['slot_end']}**（コード: {r['code']}）")
+        with c2:
+            st.write(f"残り: {int(r['remain'])}/{int(r['cap'])}")
         with c3:
             if st.button("発券", key=f"issue-{r['slot_start']}", disabled=bool(r["disabled"])):
                 try:
                     res = issue_ticket(d, r["slot_start"], r["slot_end"])
+                    # 当日ロック
                     st.session_state["issued_date"] = d
                     st.session_state["ticket_id"] = res["ticket_id"]
                     st.session_state["slot"] = res["slot"]
                     st.session_state["expires_at"] = res["expires_at"]
-                    render_ticket(res); st.stop()
+                    render_ticket(res)
+                    st.stop()
                 except Exception as e:
                     st.error(str(e))
