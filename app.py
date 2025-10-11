@@ -11,15 +11,13 @@ GROUP_NAME = "バドミントン部"
 TAGLINE = "今年もクレープ続けました"
 
 POST_ISSUE_MESSAGE = """
-ご注文ありがとうございます。ご指定のお時間になりましたら、**時間指定列**へお越しください。
+ご予約ありがとうございます。ご指定のお時間になりましたら、**予約専用お会計列**へお越しください。
 その際、**本画面のスクリーンショット**をご提示ください。
 
-ご予約時間外にお越しの場合は、**通常列**へのご案内となります。
-※混雑状況により、時間指定列へご案内できる場合があります。スタッフへお声がけください。
+ご予約時間外は、無効となります。
+※混雑状況により、予約列へご案内できる場合があります。スタッフへお声がけください。
 
-【販売に関するご案内】
-- 一時的な営業見合わせ・売切の際は、**現金にてご返金**いたします。
-- お客様都合によるお会計後のご返金は**承っておりません**。あらかじめご了承ください。
+
 """
 
 # ====== 基本設定 ======
@@ -158,7 +156,7 @@ def render_ticket(t):
         "<div style='padding:16px;border:3px dashed #e00;border-radius:12px;"
         "margin:8px 0 16px;text-align:center;font-weight:800;font-size:20px;color:#e00'>"
         "この画面（発券情報）を<strong>必ずスクショ</strong>してください。<br/>"
-        "引き渡し時にご提示いただきます。"
+        "会計時にご提示いただきます。"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -170,7 +168,7 @@ def render_ticket(t):
     )
     st.markdown(f"- 枠時間：{t['slot']}")
     st.markdown(f"- 有効期限：**{t['expires_at'].astimezone(JST).strftime('%H:%M')}** まで")
-    st.warning("※ 期限切れの場合は通常列にお並びの上、ご提示ください")
+    st.warning("※ 期限切れの場合はご利用いただけません")
     st.success(POST_ISSUE_MESSAGE)
 
 # ====== メイン ======
@@ -205,7 +203,7 @@ if view == "issue":
         (int(r["issued"]) >= int(r["cap"])), axis=1
     )
 
-    st.caption("受付：11:00–15:30 / 各30分枠20名 / 期限切れは通常列へ")
+    st.caption("受付：11:00–15:30 / 各30分枠20名 / 期限切れは無効")
 
     for _, r in df.iterrows():
         c1, c2, c3 = st.columns([2,1,2])
