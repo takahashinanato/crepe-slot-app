@@ -6,8 +6,8 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime, timedelta, time, timezone
 
 # ====== ブランド / 文言 ======
-FESTIVAL_NAME = "摩耶祭"
-GROUP_NAME = "バドミントン部"
+FESTIVAL_NAME = "摩耶祭バドミントン部"
+GROUP_NAME = "呼び込みクレープキッズからの特別優先券！"
 TAGLINE = "今年もクレープ続けました"
 
 POST_ISSUE_MESSAGE = """
